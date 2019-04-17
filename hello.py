@@ -63,7 +63,7 @@ def rotate_to_angle(angle, mL, mR, gyro):
         max_power = max(min((t - t_beg)* 30/1, 30), -30)
 
         dT = t - t_old
-        e = angle - get_angle(gyro, 3)
+        e = angle - get_angle(gyro, 3) # Check if it's better to read the gyro less or even more times
         errors = ((errors << 1) & 0xff) | (e != 0)
         dE = e - e_old
         u = k_p * e + max(min(k_i * integral, max_i), -max_i) + k_d * dE / dT
@@ -113,7 +113,7 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
         u = max(min(u, max_power), -max_power)
         # --------------------------------------------------------------------------------------------
         # Not the best way to do things ^^', in fact it probably wont work...
-        e_2 = (mL.position - mR.position) + (angle - get_angle(gyro, 2))
+        e_2 = (mL.position - mR.position) + (angle - get_angle(gyro, 2)) # Check if it's better to read the gyro just one time or even more times
         u_2 = k_p_2 * e_2 + k_i_2 * integral_2
         u_2 = max(min(u_2, 30), -30)
 
