@@ -47,33 +47,34 @@ def get_angle(gyro, readings_to_average):
 
 def rotate_to_angle(angle, mL, mR, gyro):
     debug_print("Rotate to ", angle, "degrees")
-    mL.position = mR.position = 0
+    mL.reset() 
+    mR.reset()
     e_old = integral = 0
     t_beg = t_old = time.time()
     e = angle - get_angle(gyro, 3)
-    k_p = 2
-    k_i = 3
+    k_p = 2.5
+    k_i = 1; max_i = 15
     k_d = 0
     errors = 0xff
 
     while errors: 
         t = time.time()
-         # increase to 100 over 1.5 seconds
-        max_power = max(min((t - t_beg)* 100/1.5, 100), -100)
+         # increase to 30 over 1 seconds
+        max_power = max(min((t - t_beg)* 30/1, 30), -30)
 
         dT = t - t_old
         e = angle - get_angle(gyro, 3)
         errors = ((errors << 1) & 0xff) | (e != 0)
         dE = e - e_old
-        u = k_p * e + max(min(k_i * integral, 10), -10) + k_d * dE / dT
+        u = k_p * e + max(min(k_i * integral, max_i), -max_i) + k_d * dE / dT
 
         u = max(min(u, max_power), -max_power)
         debug_print(t, e, dE, integral, u, sep=', ')
-        mR.run_direct(duty_cycle_sp=-u)
-        mL.run_direct(duty_cycle_sp=u)
+        mR.run_direct(duty_cycle_sp=u)
+        mL.run_direct(duty_cycle_sp=-u)
 
         integral += e * dT
-        integral = max(min(integral, 10), -10)
+        integral = max(min(integral, max_i), -max_i)
         e_old = e
         t_old = t
 
@@ -84,30 +85,46 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
     distance_count = (distance*mR.count_per_rot)/17.6
     distance_count = int(round(distance_count))
     debug_print("Move for ", distance_count, "degrees")
-    mL.position = mR.position = 0
+    mL.reset()
+    mR.reset()
 
     errors = 0xff
-    e_old = integral = 0
+    integral_2 = e_old = integral = 0
     t_beg = t_old = time.time()
     e = distance_count
-    k_p = 0.4
-    k_i = 0.7; max_i = 15
+    k_p = 1
+    k_i = 2; max_i = 10
     k_d = 0
+
+    k_p_2 = 0.6
+    k_i_2 = 1; max_i_2 = 10
 
     while errors: 
         t = time.time()
-         # increase to 90 over 1.5 seconds
-        max_power = max(min((t - t_beg)* 90/1.5, 90), -90)
+         # increase to 50 over 1.5 seconds
+        max_power = max(min((t - t_beg)* 50/1.5, 50), -50)
 
         dT = t - t_old
         e = distance_count - int((mL.position + mR.position)/2)
-        errors = ((errors << 1) & 0xff) | (e != 0)
+        errors = ((errors << 1) & 0xff) | ((e > 1) | (e < -1))
         dE = e - e_old
         u = k_p * e +  max(min(k_i * integral, max_i), -max_i) + k_d * dE / dT
 
         u = max(min(u, max_power), -max_power)
-        debug_print(t, e, dE, integral, u , sep=', ')
-        mrsnod(u, u, mL, mR, gyro, angle)
+        # --------------------------------------------------------------------------------------------
+        # Not the best way to do things ^^', in fact it probably wont work...
+        e_2 = (mL.position - mR.position) + (angle - get_angle(gyro, 2))
+        u_2 = k_p_2 * e_2 + k_i_2 * integral_2
+        u_2 = max(min(u_2, 30), -30)
+
+        mL.run_direct(duty_cycle_sp=u - u_2)
+        mR.run_direct(duty_cycle_sp=u + u_2)
+
+        integral_2 += e_2 * dT
+        integral_2 = max(min(integral_2, max_i_2), -max_i_2)
+        # --------------------------------------------------------------------------------------------
+        debug_print("Time: ", t, "Error: ", e, "Integral: ", integral, "u:", u, "Integral_2: ", integral_2, "u_2: ", u_2, "e_2:", e_2, sep=' ')
+
 
         integral += e * dT
         integral = max(min(integral, max_i), -max_i)
@@ -116,17 +133,6 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
 
     mR.run_direct(duty_cycle_sp=0)
     mL.run_direct(duty_cycle_sp=0)
-
-# motor_rotate_same_number_of_degrees
-def mrsnod(duty_cycle_l, duty_cycle_r, mL, mR, gyro, angle):
-    # Not the best way to do things ^^', in fact it probably wont work...
-    k_p = 0.5
-    e = (mL.position - mR.position) + (angle - get_angle(gyro, 2))
-    u = max(min(e * k_p, 10), -10)
-
-    mL.run_direct(duty_cycle_sp=duty_cycle_l - u)
-    mR.run_direct(duty_cycle_sp=duty_cycle_r + u)
-
 
 
 def main():
@@ -147,14 +153,17 @@ def main():
     debug_print("Gyro: " + str(gy.value()))
 
 
-    drive_for_centimeters(10, mL, mR, gy, 0)
-    rotate_to_angle(90, mL, mR, gy)
-    drive_for_centimeters(20, mL, mR, gy, 90)
-    rotate_to_angle(270, mL, mR, gy, )
-    drive_for_centimeters(20, mL, mR, gy, 270)
-    rotate_to_angle(45, mL, mR, gy)
-    rotate_to_angle(0, mL, mR, gy)
-    drive_for_centimeters(-10, mL, mR, gy, 0)
+    drive_for_centimeters(170, mL, mR, gy, 0)
+    # rotate_to_angle(90, mL, mR, gy)
+    # drive_for_centimeters(100, mL, mR, gy, 90)
+    # rotate_to_angle(180, mL, mR, gy)
+    # drive_for_centimeters(100, mL, mR, gy, 180)
+    # rotate_to_angle(270, mL, mR, gy)
+    # drive_for_centimeters(100, mL, mR, gy, 270)
+    # rotate_to_angle(0, mL, mR, gy)
+    # rotate_to_angle(45, mL, mR, gy)
+    # rotate_to_angle(0, mL, mR, gy)
+    # drive_for_centimeters(-10, mL, mR, gy, 0)
 
     
 
