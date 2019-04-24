@@ -196,7 +196,7 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
 def calculate_angle(angle, current_angle):
     factor = int(current_angle / 360)
     angle = angle + factor * 360
-    
+
     if angle - current_angle > 180:
        angle = angle - 360
     elif current_angle - angle > 180:
@@ -284,11 +284,39 @@ def main():
     #test_destinations = [[100, 0]]
     #test_destinations = [[96, 24], [0, 0], [60, 60], [0, 0]]
     #test_destinations = [[96, 0], [96, 24], [0, 24], [0, 0], [60, 0], [60, 60], [0, 60], [0, 0]]
-    test_destinations = [[60, 0], [0, 0], [60, 0], [0, 0]]
-
+    #test_destinations = [[50, 0], [50, 50], [0, 50], [0, 0]]
+    test_destinations = []
     start = [0, 0]
+
+    locations = []
+
+    for key, item in data.items():
+        if key == "start":
+            start = item
+        else:
+            locations.append(item)
+
+    locations = sorted(locations, key=lambda x: x[0]+x[1], reverse=False)
+
+
+    for l in locations:
+        l1 = [l[0], start[1]]
+        l2 = [l[0], l[1]]
+        l3 = [start[0], l[1]]
+        if len(test_destinations) == 0 or test_destinations[-1][0] != l1[0] or test_destinations[-1][1] != l1[1]:
+            test_destinations.append(l1)
+        if test_destinations[-1][0] != l2[0] or test_destinations[-1][1] != l2[1]:
+            test_destinations.append(l2)
+        if test_destinations[-1][0] != l3[0] or test_destinations[-1][1] != l3[1]:
+            test_destinations.append(l3)
+        if test_destinations[-1][0] != start[0] or test_destinations[-1][1] != start[1]:
+            test_destinations.append(start)
+
+    debug_print(test_destinations)
+    return
+
     for d in test_destinations:
-        go_to_location(x=d[0], y=d[1], current_x=start[0], current_y=start[1], mL=mL, mR=mR, gyro=gy)
+        go_to_location(x=d[0], y=-d[1], current_x=start[0], current_y=-start[1], mL=mL, mR=mR, gyro=gy)
         #debug_print("GYRO DRIFT: " + str(gyro_drift))
         check_sensor(cl)
         start = d
