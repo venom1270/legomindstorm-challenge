@@ -193,39 +193,26 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
     file.close()
     file2.close()
 
+def calculate_angle(angle, current_angle):
+    factor = int(current_angle / 360)
+    angle = angle + factor * 360
+    
+    if angle - current_angle > 180:
+       angle = angle - 360
+    elif current_angle - angle > 180:
+        angle = angle + 360
+
+    return angle
+
 def go_to_location(x, y, current_x, current_y, mL, mR, gyro):
     current_angle = get_angle(gyro, 5)
     delta_x = x - current_x
     delta_y = y - current_y
     angle = -math.floor(math.degrees(math.atan2(delta_y, delta_x)))
-    debug_print(angle)
-    # Not working in all cases
-    while abs(angle-current_angle) > 180:
-        debug_print(str(angle) + " | current_angle: " + str(current_angle))
-        if angle > 0:
-            angle = -(360-angle)
-        elif angle < 0:
-            angle = angle+360
-
-    #a1 = current_angle % 360
-    #if current_angle >= 0:
-    #    a2 = 360 - a1
-    #    a1 *= -1
-    #    if abs(angle - a1) < abs(angle - a2):
-    #        angle = current_angle - (a1 - angle)
-    #    else:
-    #        angle = current_angle - (a2 - angle)
-    #else:
-    #    a2 = 360 - a1
-    #    if abs(angle - a1) < abs(angle - a2):
-    #        angle = current_angle + (a1 - angle)
-    #    else:
-    #        angle = current_angle + (a2 - angle)
+    angle = calculate_angle(angle, current_angle)
 
     debug_print("Angle converted to " + str(angle) + " | Current angle: " + str(current_angle))
     rotate_to_angle(angle, mL, mR, gyro)
-
-    time.sleep(1)
 
     distance = math.floor(math.sqrt(delta_x**2 + delta_y**2))
     drive_for_centimeters(distance, mL, mR, gyro, angle)
@@ -278,15 +265,10 @@ def main():
     mR = LargeMotor('outC'); mR.stop_action = 'hold'
     cl = ColorSensor()
     cl.mode = 'COL-COLOR'
-    print(cl.value())
-    debug_print(cl.value())
-    print('Hello, my name is EV3!')
 
     gy = GyroSensor()
     gy.mode = 'GYRO-ANG'
     #gy.mode = 'GYRO-RATE'
-
-    debug_print("Gyro: " + str(gy.value()))
 
     global start_time
     start_time = time.time()
@@ -302,7 +284,7 @@ def main():
     #test_destinations = [[100, 0]]
     #test_destinations = [[96, 24], [0, 0], [60, 60], [0, 0]]
     #test_destinations = [[96, 0], [96, 24], [0, 24], [0, 0], [60, 0], [60, 60], [0, 60], [0, 0]]
-    test_destinations = [[180, 0], [0, 0]]
+    test_destinations = [[60, 0], [0, 0], [60, 0], [0, 0]]
 
     start = [0, 0]
     for d in test_destinations:
@@ -310,7 +292,6 @@ def main():
         #debug_print("GYRO DRIFT: " + str(gyro_drift))
         check_sensor(cl)
         start = d
-    rotate_to_angle(0, mL, mR, gy)
 
     #go_to_location(x=10, y=0, current_x=0, current_y=0, mL=mL, mR=mR, gyro=gy)
 
