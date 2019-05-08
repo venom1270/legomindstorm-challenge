@@ -6,6 +6,7 @@ import sys
 import time
 import json
 import math
+import urllib.request
 from ev3dev.ev3 import LargeMotor, Sound, ColorSensor, GyroSensor
 
 # state constants
@@ -275,8 +276,19 @@ start_time = None
 def main():
     data = None
 
+
     with open('zemljevid.json') as f:
         data = json.load(f)
+
+
+    #resource = urllib.request.urlopen('http://192.168.0.200:8080/zemljevid.json')
+    #content =  resource.read()
+    #content =  content.decode("utf-8")
+    #data = json.loads(content)
+
+    # with open('zemljevid.json') as f:
+        # data = json.load(f)
+
 
     os.system('setfont Lat15-TerminusBold14')
     if os.path.exists("logs"):
