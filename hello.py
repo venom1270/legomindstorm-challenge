@@ -45,8 +45,8 @@ def get_angle(gyro, readings_to_average):
     angle = 0.0
     for _ in range(readings_to_average):
         angle += gyro.value()
-    return angle/readings_to_average 
-    
+    return angle/readings_to_average
+
 
 rotate_log_number = 0
 def rotate_to_angle(angle, mL, mR, gyro):
@@ -57,7 +57,7 @@ def rotate_to_angle(angle, mL, mR, gyro):
     t_beg = t_old = time.time()
     e = angle - get_angle(gyro, 3)
     k_p = 3
-    k_i = 1; max_i = 12
+    k_i = 0; max_i = 20
     k_d = 0
     errors = 0xffffffff
 
@@ -66,7 +66,7 @@ def rotate_to_angle(angle, mL, mR, gyro):
     file.write("Time\tError\tIntegral\tU\n")
     rotate_log_number += 1
 
-    speed = 25
+    speed = 20
 
     start_time = time.time()
 
@@ -82,7 +82,7 @@ def rotate_to_angle(angle, mL, mR, gyro):
         u = k_p * e + max(min(k_i * integral, max_i), -max_i) + k_d * dE / dT
 
         u = max(min(u, max_power), -max_power)
-        
+
         # correction for wheel spin difference so the ev3 stays in same position
         k_ns_p = 1
         e_ns = mR.position + mL.position
@@ -96,9 +96,18 @@ def rotate_to_angle(angle, mL, mR, gyro):
 
         debug_print(t, u_ns, e, dE, integral, u, sep=', ')
 
+        #if e < 20:
+        #    u /= 2
+
+        if e <= 5:
+            k_p = 30/e
+
+        #k_i = (1-e/90.0)
+
         mR.run_direct(duty_cycle_sp=-u - u_ns_r)
         mL.run_direct(duty_cycle_sp=u - u_ns_l)
 
+        #if e < 10:
         integral += e * dT
         integral = max(min(integral, max_i), -max_i)
         e_old = e
@@ -133,22 +142,22 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
     start_time = t_beg = t_old = time.time()
     e = distance_count
 
-    k_p = 1
-    k_i = 2; max_i = 15
+    k_p = 0.5
+    k_i = 1; max_i = 15
     k_d = 0
 
-    k_r_1 = 10
-    k_r_2 = 1
+    k_r_1 = 1
+    k_r_2 = 0
     k_p_2 = 1
-    k_i_2 = 0; max_i_2 = 10
-    k_d_2 = 0.0
+    k_i_2 = 0.1; max_i_2 = 10
+    k_d_2 = 0
 
     speed = 35
 
     while errors:
         t = time.time()
          # increase to 'speed' over 1.5 seconds
-        max_power = max(min((t - t_beg)* speed/1.5, speed), -speed)
+        max_power = max(min((t - t_beg)* speed/3.0, speed), -speed)
 
         dT = t - t_old
         e = distance_count - int((mL.position + mR.position)/2)
@@ -163,19 +172,22 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
         # Not the best way to do things ^^', in fact it probably wont work...
         measured_angle = get_angle(gyro, 1) # Check if it's better to read the gyro just one time or even more times
         e_2_ang += (measured_angle - angle) * dT # integral of the error is the actual error
-        e_2 = k_r_1 * e_2_ang + k_r_2 * (mL.position - mR.position)  
-        
+        e_2 = k_r_1 * (measured_angle - angle) + k_r_2 * (mL.position - mR.position)
+        #e_2 = e_2_ang
+
         dE_2 = e_2 - e_old_2
         u_2 = k_p_2 * e_2 + k_i_2 * integral_2 + k_d_2 * dE_2/dT
         u_2 = max(min(u_2, 10), -10)
 
-        mL.run_direct(duty_cycle_sp=u - u_2)
-        mR.run_direct(duty_cycle_sp=u + u_2)
+        #mL.run_direct(duty_cycle_sp=u - u_2)
+        #mR.run_direct(duty_cycle_sp=u + u_2)
+        mL.run_forever(speed_sp=(u - u_2) * 10)
+        mR.run_forever(speed_sp=(u + u_2) * 10)
 
         integral_2 += e_2 * dT
         integral_2 = max(min(integral_2, max_i_2), -max_i_2)
         # --------------------------------------------------------------------------------------------
-        debug_print("Time:", t, "Error:", e, "Integral:", integral, "u:", u, "Integral_2:", integral_2, "u_2:", u_2, "e_2:", e_2, "e_2_ang:", e_2_ang, sep=' ')
+        #debug_print("Time:", t, "Error:", e, "Integral:", integral, "u:", u, "Integral_2:", integral_2, "u_2:", u_2, "e_2:", e_2, "e_2_ang:", e_2_ang, sep=' ')
 
 
         integral += e * dT
@@ -183,8 +195,8 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
         e_old = e
         t_old = t
 
-        file.write(str(t-start_time) + "\t" + str(-e) + "\t" + str(integral) + "\t" + str(u) + "\n")
-        file2.write(str(t-start_time) + "\t" + str(-e_2) + "\t" + str(integral_2) + "\t" + str(u_2) + "\n")
+        #file.write(str(t-start_time) + "\t" + str(-e) + "\t" + str(integral) + "\t" + str(u) + "\n")
+        #file2.write(str(t-start_time) + "\t" + str(-e_2) + "\t" + str(integral_2) + "\t" + str(u_2) + "\n")
 
     mR.run_direct(duty_cycle_sp=0)
     mL.run_direct(duty_cycle_sp=0)
@@ -256,7 +268,7 @@ def beep(times, beep_duration=1000):
     for i in range(times):
         Sound.tone(1500, beep_duration).wait()
         time.sleep(0.5)
- 
+
 gyro_drift = 0
 start_time = None
 
@@ -265,7 +277,7 @@ def main():
 
     with open('zemljevid.json') as f:
         data = json.load(f)
-    
+
     os.system('setfont Lat15-TerminusBold14')
     if os.path.exists("logs"):
         import shutil
@@ -307,12 +319,12 @@ def main():
     # Sort by distance, TODO might be better to minimize turns by prioritizing victims that are in the same line
     locations = sorted(locations, key=lambda x: abs(start[0] - x[0]) + abs(start[1] - x[1]), reverse=False)
     current_location = start
-
+    '''
     while locations:
         next_location = locations.pop(0)
         go_to_location(x=next_location[0], y=next_location[1], current_x=current_location[0], current_y=current_location[1], mL=mL, mR=mR, gyro=gy)
         current_location = next_location
-        
+
         color = cl.value()
         if color == 1: # BLACK: START, 2 second beep
             debug_print("Color sensor: START")
@@ -334,26 +346,29 @@ def main():
             debug_print("Color sensor: UNKNOWN (" + str(color) + ")")
             # TODO try finding the circle in neighbourhood
             locations.insert(0, start)
+            #search = next_location
+            #search.x += 5
+            #locations.insert(0, search)
 
 
     # Rotate back to original orientation
     angle = calculate_angle(0, gy.value())
     rotate_to_angle(angle, mL, mR, gy)
-    
+    '''
 
-    # for _ in range (5):
-    #     rotate_to_angle(90, mL, mR, gy)
-    #     rotate_to_angle(180, mL, mR, gy)
-    #     rotate_to_angle(270, mL, mR, gy)
-    #     rotate_to_angle(180, mL, mR, gy)
-    #     rotate_to_angle(90, mL, mR, gy)
-    #     rotate_to_angle(0, mL, mR, gy)
+    for _ in range (5):
+        rotate_to_angle(90, mL, mR, gy)
+        rotate_to_angle(180, mL, mR, gy)
+        rotate_to_angle(270, mL, mR, gy)
+        rotate_to_angle(180, mL, mR, gy)
+        rotate_to_angle(90, mL, mR, gy)
+        rotate_to_angle(0, mL, mR, gy)
 
-    # for _ in range (1):
-    #     drive_for_centimeters(180, mL, mR, gy, 0)
-    #     rotate_to_angle(0, mL, mR, gy)
-    #     drive_for_centimeters(-180, mL, mR, gy, 0)
-    #     rotate_to_angle(0, mL, mR, gy)
+    #for i in range (1):
+    #    drive_for_centimeters(100, mL, mR, gy, 0)
+    #    rotate_to_angle(0, mL, mR, gy)
+    #    drive_for_centimeters(-100, mL, mR, gy, 0)
+    #    rotate_to_angle(0, mL, mR, gy)
 
 if __name__ == '__main__':
     main()
