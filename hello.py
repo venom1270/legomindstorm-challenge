@@ -57,9 +57,9 @@ def rotate_to_angle(angle, mL, mR, gyro):
     e_old = integral = 0
     t_beg = t_old = time.time()
     e = angle - get_angle(gyro, 3)
-    k_p = 3
-    k_i = 0; max_i = 20
-    k_d = 0
+    k_p = 3.2 # slight overshoot, 3.5, 3.3 work quite well
+    k_i = 1.2; max_i = 50 #0.3
+    k_d = 0.1
     errors = 0xffffffff
 
     global rotate_log_number
@@ -100,8 +100,9 @@ def rotate_to_angle(angle, mL, mR, gyro):
         #if e < 20:
         #    u /= 2
 
-        if e <= 5:
-            k_p = 30/e
+        if abs(e) <= 15:
+            #k_p = 30/e
+            integral += e * dT
 
         #k_i = (1-e/90.0)
 
@@ -109,7 +110,7 @@ def rotate_to_angle(angle, mL, mR, gyro):
         mL.run_direct(duty_cycle_sp=u - u_ns_l)
 
         #if e < 10:
-        integral += e * dT
+        #integral += e * dT
         integral = max(min(integral, max_i), -max_i)
         e_old = e
         t_old = t
@@ -143,17 +144,17 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
     start_time = t_beg = t_old = time.time()
     e = distance_count
 
-    k_p = 0.5
-    k_i = 1; max_i = 15
+    k_p = 0.4
+    k_i = 0.09; max_i = 15
     k_d = 0
 
     k_r_1 = 1
     k_r_2 = 0
-    k_p_2 = 1
-    k_i_2 = 0.1; max_i_2 = 10
-    k_d_2 = 0
+    k_p_2 = 0.1 #0.5
+    k_i_2 = 0.25; max_i_2 = 10 #1
+    k_d_2 = 0.01
 
-    speed = 35
+    speed = 20
 
     while errors:
         t = time.time()
@@ -188,7 +189,7 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
         integral_2 += e_2 * dT
         integral_2 = max(min(integral_2, max_i_2), -max_i_2)
         # --------------------------------------------------------------------------------------------
-        #debug_print("Time:", t, "Error:", e, "Integral:", integral, "u:", u, "Integral_2:", integral_2, "u_2:", u_2, "e_2:", e_2, "e_2_ang:", e_2_ang, sep=' ')
+        debug_print("Time:", t, "Error:", e, "Integral:", integral, "u:", u, "Integral_2:", integral_2, "u_2:", u_2, "e_2:", e_2, "e_2_ang:", e_2_ang, sep=' ')
 
 
         integral += e * dT
@@ -331,33 +332,56 @@ def main():
     # Sort by distance, TODO might be better to minimize turns by prioritizing victims that are in the same line
     locations = sorted(locations, key=lambda x: abs(start[0] - x[0]) + abs(start[1] - x[1]), reverse=False)
     current_location = start
-    '''
+
+    def reset_neighbourhood_search():
+        searching_neighbourhood = False
+        neighbourhood_locations = []
+
+    searching_neighbourhood = False
+    neighbourhood_locations = []
+
+
     while locations:
         next_location = locations.pop(0)
         go_to_location(x=next_location[0], y=next_location[1], current_x=current_location[0], current_y=current_location[1], mL=mL, mR=mR, gyro=gy)
         current_location = next_location
 
         color = cl.value()
-        if color == 1: # BLACK: START, 2 second beep
+        if color == 1 or color == 6: # BLACK: START, 2 second beep
             debug_print("Color sensor: START")
             beep(1, 2000)
+            reset_neighbourhood_search()
             locations = sorted(locations, key=lambda x: abs(start[0] - x[0]) + abs(start[1] - x[1]), reverse=False)
         elif color == 2: # BLUE: good condition, 1 beep
             debug_print("Color sensor: BLUE")
             beep(1)
+            reset_neighbourhood_search()
             locations.insert(0, start)
         elif color == 4: # YELLOW: critical condition, 2 beeps
             debug_print("Color sensor: YELLOW")
             beep(2)
+            reset_neighbourhood_search()
             locations.insert(0, start)
         elif color == 5: # RED: passed away, 3 beeps
             debug_print("Color sensor: RED")
             beep(3)
-            locations = sorted(locations, key=lambda x: abs(current_location[0] - x[0]) + abs(current_location[1] - x[1]), reverse=False)
+            reset_neighbourhood_search()
+            locations.insert(0, start)
+            #locations = sorted(locations, key=lambda x: abs(current_location[0] - x[0]) + abs(current_location[1] - x[1]), reverse=False)
         else:
             debug_print("Color sensor: UNKNOWN (" + str(color) + ")")
             # TODO try finding the circle in neighbourhood
-            locations.insert(0, start)
+            #locations.insert(0, start)
+            if not searching_neighbourhood:
+                searching_neighbourhood = True
+                radius = 2.5
+                for area in range(1,6):
+                    neighbourhood_locations.append([next_location[0]+radius*area, next_location[1]-radius*area])
+                    neighbourhood_locations.append([next_location[0]+radius*area, next_location[1]+radius*area])
+                    neighbourhood_locations.append([next_location[0]-radius*area, next_location[1]+radius*area])
+                    neighbourhood_locations.append([next_location[0]-radius*area, next_location[1]-radius*area])
+            locations.insert(0, neighbourhood_locations[0])
+            neighbourhood_locations = neighbourhood_locations[1:]
             #search = next_location
             #search.x += 5
             #locations.insert(0, search)
@@ -366,20 +390,20 @@ def main():
     # Rotate back to original orientation
     angle = calculate_angle(0, gy.value())
     rotate_to_angle(angle, mL, mR, gy)
-    '''
 
-    for _ in range (5):
-        rotate_to_angle(90, mL, mR, gy)
-        rotate_to_angle(180, mL, mR, gy)
-        rotate_to_angle(270, mL, mR, gy)
-        rotate_to_angle(180, mL, mR, gy)
-        rotate_to_angle(90, mL, mR, gy)
-        rotate_to_angle(0, mL, mR, gy)
 
-    #for i in range (1):
-    #    drive_for_centimeters(100, mL, mR, gy, 0)
+    # for _ in range (5):
+    #     rotate_to_angle(90, mL, mR, gy)
+    #     rotate_to_angle(180, mL, mR, gy)
+    #     rotate_to_angle(270, mL, mR, gy)
+    #     rotate_to_angle(180, mL, mR, gy)
+    #     rotate_to_angle(90, mL, mR, gy)
+    #     rotate_to_angle(0, mL, mR, gy)
+
+    #for i in range (3):
+    #    drive_for_centimeters(180, mL, mR, gy, 0)
     #    rotate_to_angle(0, mL, mR, gy)
-    #    drive_for_centimeters(-100, mL, mR, gy, 0)
+    #    drive_for_centimeters(-180, mL, mR, gy, 0)
     #    rotate_to_angle(0, mL, mR, gy)
 
 if __name__ == '__main__':
