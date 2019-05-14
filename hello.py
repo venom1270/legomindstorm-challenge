@@ -116,7 +116,7 @@ def rotate_to_angle(angle, mL, mR, gyro):
         t_old = t
 
         # comment out when not needed
-        #file.write(str(t-start_time) + "\t" + str(e) + "\t" + str(integral) + "\t" + str(u) + "\n")
+        file.write(str(t-start_time) + "\t" + str(e) + "\t" + str(integral) + "\t" + str(u) + "\n")
 
     mR.run_direct(duty_cycle_sp=0)
     mL.run_direct(duty_cycle_sp=0)
@@ -144,22 +144,29 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
     start_time = t_beg = t_old = time.time()
     e = distance_count
 
-    k_p = 0.4
-    k_i = 0.09; max_i = 15
+    # run_forever
+    #k_p = 0.4
+    #k_i = 0.03; max_i = 15
+    #k_d = 0.00
+
+    k_p = 0.8
+    k_i = 0.5; max_i = 60
     k_d = 0
 
     k_r_1 = 1
     k_r_2 = 0
-    k_p_2 = 0.1 #0.5
-    k_i_2 = 0.25; max_i_2 = 10 #1
-    k_d_2 = 0.01
+    k_p_2 = 1 #0.5 0.1
+    k_i_2 = 0.0; max_i_2 = 10 #1 0.25
+    k_d_2 = 0.00 #0.01
 
-    speed = 20
+    speed = 30 #run_forever 20
+
+    global searching_neighbourhood
 
     while errors:
         t = time.time()
          # increase to 'speed' over 1.5 seconds
-        max_power = max(min((t - t_beg)* speed/3.0, speed), -speed)
+        max_power = max(min((t - t_beg)* speed/5.0, speed), -speed)
 
         dT = t - t_old
         e = distance_count - int((mL.position + mR.position)/2)
@@ -181,24 +188,27 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
         u_2 = k_p_2 * e_2 + k_i_2 * integral_2 + k_d_2 * dE_2/dT
         u_2 = max(min(u_2, 10), -10)
 
-        #mL.run_direct(duty_cycle_sp=u - u_2)
-        #mR.run_direct(duty_cycle_sp=u + u_2)
-        mL.run_forever(speed_sp=(u - u_2) * 10)
-        mR.run_forever(speed_sp=(u + u_2) * 10)
+        mL.run_direct(duty_cycle_sp=u - u_2)
+        mR.run_direct(duty_cycle_sp=u + u_2)
+        #mL.run_forever(speed_sp=(u - u_2) * 10)
+        #mR.run_forever(speed_sp=(u + u_2) * 10)
 
         integral_2 += e_2 * dT
         integral_2 = max(min(integral_2, max_i_2), -max_i_2)
         # --------------------------------------------------------------------------------------------
         debug_print("Time:", t, "Error:", e, "Integral:", integral, "u:", u, "Integral_2:", integral_2, "u_2:", u_2, "e_2:", e_2, "e_2_ang:", e_2_ang, sep=' ')
 
-
-        integral += e * dT
+        if abs(e) < 50:
+            integral += e * dT
         integral = max(min(integral, max_i), -max_i)
         e_old = e
         t_old = t
 
-        #file.write(str(t-start_time) + "\t" + str(-e) + "\t" + str(integral) + "\t" + str(u) + "\n")
-        #file2.write(str(t-start_time) + "\t" + str(-e_2) + "\t" + str(integral_2) + "\t" + str(u_2) + "\n")
+        file.write(str(t-start_time) + "\t" + str(-e) + "\t" + str(integral) + "\t" + str(u) + "\n")
+        file2.write(str(t-start_time) + "\t" + str(-e_2) + "\t" + str(integral_2) + "\t" + str(u_2) + "\n")
+
+        if searching_neighbourhood and check_color():
+            return
 
     mR.run_direct(duty_cycle_sp=0)
     mL.run_direct(duty_cycle_sp=0)
@@ -271,8 +281,29 @@ def beep(times, beep_duration=1000):
         Sound.tone(1500, beep_duration).wait()
         time.sleep(0.5)
 
+def check_color():
+    global cl
+    color = cl.value()
+    if color == 1 or color == 6: # BLACK: START, 2 second beep
+        debug_print("Color sensor: START")
+        return True
+    elif color == 2: # BLUE: good condition, 1 beep
+        debug_print("Color sensor: BLUE")
+        return True
+    elif color == 4: # YELLOW: critical condition, 2 beeps
+        debug_print("Color sensor: YELLOW")
+        return True
+    elif color == 5: # RED: passed away, 3 beeps
+        debug_print("Color sensor: RED")
+        return True
+    else:
+        debug_print("Color sensor: UNKNOWN (" + str(color) + ")")
+        return False
+
 gyro_drift = 0
 start_time = None
+cl = None
+searching_neighbourhood = False
 
 def main():
     data = None
@@ -299,6 +330,7 @@ def main():
 
     mL = LargeMotor('outB'); mL.stop_action = 'hold'
     mR = LargeMotor('outC'); mR.stop_action = 'hold'
+    global cl
     cl = ColorSensor()
     cl.mode = 'COL-COLOR'
     gy = GyroSensor()
@@ -334,9 +366,12 @@ def main():
     current_location = start
 
     def reset_neighbourhood_search():
+        global searching_neighbourhood
+        nonlocal neighbourhood_locations
         searching_neighbourhood = False
         neighbourhood_locations = []
 
+    global searching_neighbourhood
     searching_neighbourhood = False
     neighbourhood_locations = []
 
@@ -370,12 +405,11 @@ def main():
             #locations = sorted(locations, key=lambda x: abs(current_location[0] - x[0]) + abs(current_location[1] - x[1]), reverse=False)
         else:
             debug_print("Color sensor: UNKNOWN (" + str(color) + ")")
-            # TODO try finding the circle in neighbourhood
             #locations.insert(0, start)
             if not searching_neighbourhood:
                 searching_neighbourhood = True
                 radius = 2.5
-                for area in range(1,6):
+                for area in range(1,15):
                     neighbourhood_locations.append([next_location[0]+radius*area, next_location[1]-radius*area])
                     neighbourhood_locations.append([next_location[0]+radius*area, next_location[1]+radius*area])
                     neighbourhood_locations.append([next_location[0]-radius*area, next_location[1]+radius*area])
@@ -400,11 +434,11 @@ def main():
     #     rotate_to_angle(90, mL, mR, gy)
     #     rotate_to_angle(0, mL, mR, gy)
 
-    #for i in range (3):
-    #    drive_for_centimeters(180, mL, mR, gy, 0)
-    #    rotate_to_angle(0, mL, mR, gy)
-    #    drive_for_centimeters(-180, mL, mR, gy, 0)
-    #    rotate_to_angle(0, mL, mR, gy)
+    # for i in range (3):
+    #     drive_for_centimeters(180, mL, mR, gy, 0)
+    #     rotate_to_angle(0, mL, mR, gy)
+    #     drive_for_centimeters(-180, mL, mR, gy, 0)
+    #     rotate_to_angle(0, mL, mR, gy)
 
 if __name__ == '__main__':
     main()
