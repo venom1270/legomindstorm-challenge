@@ -382,7 +382,7 @@ def main():
         current_location = next_location
 
         color = cl.value()
-        if color == 1 or color == 6: # BLACK: START, 2 second beep
+        if color == 1: # BLACK: START, 2 second beep
             debug_print("Color sensor: START")
             beep(1, 2000)
             reset_neighbourhood_search()
@@ -401,8 +401,8 @@ def main():
             debug_print("Color sensor: RED")
             beep(3)
             reset_neighbourhood_search()
-            locations.insert(0, start)
-            #locations = sorted(locations, key=lambda x: abs(current_location[0] - x[0]) + abs(current_location[1] - x[1]), reverse=False)
+            #locations.insert(0, start)
+            locations = sorted(locations, key=lambda x: abs(current_location[0] - x[0]) + abs(current_location[1] - x[1]), reverse=False)
         else:
             debug_print("Color sensor: UNKNOWN (" + str(color) + ")")
             #locations.insert(0, start)
