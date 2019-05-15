@@ -71,6 +71,13 @@ def rotate_to_angle(angle, mL, mR, gyro):
 
     start_time = time.time()
 
+    global gyro_drift
+    gyro_drift -= (int(e) / 90)
+    debug_print(e)
+
+    angle += gyro_drift
+    e = angle - get_angle(gyro, 3)
+
     while errors: # or error_history < 10:
         t = time.time()
          # increase to 'speed' over 1 seconds
@@ -95,7 +102,7 @@ def rotate_to_angle(angle, mL, mR, gyro):
             u_ns_r = u_ns
             u_ns_l = 0
 
-        debug_print(t, u_ns, e, dE, integral, u, sep=', ')
+        #debug_print(t, u_ns, e, dE, integral, u, sep=', ')
 
         #if e < 20:
         #    u /= 2
@@ -116,7 +123,7 @@ def rotate_to_angle(angle, mL, mR, gyro):
         t_old = t
 
         # comment out when not needed
-        file.write(str(t-start_time) + "\t" + str(e) + "\t" + str(integral) + "\t" + str(u) + "\n")
+        #file.write(str(t-start_time) + "\t" + str(e) + "\t" + str(integral) + "\t" + str(u) + "\n")
 
     mR.run_direct(duty_cycle_sp=0)
     mL.run_direct(duty_cycle_sp=0)
@@ -150,7 +157,7 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
     #k_d = 0.00
 
     k_p = 0.8
-    k_i = 0.5; max_i = 60
+    k_i = 0.5; max_i = 70
     k_d = 0
 
     k_r_1 = 1
@@ -196,7 +203,7 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
         integral_2 += e_2 * dT
         integral_2 = max(min(integral_2, max_i_2), -max_i_2)
         # --------------------------------------------------------------------------------------------
-        debug_print("Time:", t, "Error:", e, "Integral:", integral, "u:", u, "Integral_2:", integral_2, "u_2:", u_2, "e_2:", e_2, "e_2_ang:", e_2_ang, sep=' ')
+        #debug_print("Time:", t, "Error:", e, "Integral:", integral, "u:", u, "Integral_2:", integral_2, "u_2:", u_2, "e_2:", e_2, "e_2_ang:", e_2_ang, sep=' ')
 
         if abs(e) < 50:
             integral += e * dT
@@ -204,8 +211,8 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
         e_old = e
         t_old = t
 
-        file.write(str(t-start_time) + "\t" + str(-e) + "\t" + str(integral) + "\t" + str(u) + "\n")
-        file2.write(str(t-start_time) + "\t" + str(-e_2) + "\t" + str(integral_2) + "\t" + str(u_2) + "\n")
+        #file.write(str(t-start_time) + "\t" + str(-e) + "\t" + str(integral) + "\t" + str(u) + "\n")
+        #file2.write(str(t-start_time) + "\t" + str(-e_2) + "\t" + str(integral_2) + "\t" + str(u_2) + "\n")
 
         if searching_neighbourhood and check_color():
             return
@@ -284,7 +291,7 @@ def beep(times, beep_duration=1000):
 def check_color():
     global cl
     color = cl.value()
-    if color == 1 or color == 6: # BLACK: START, 2 second beep
+    if color == 1: # BLACK: START, 2 second beep
         debug_print("Color sensor: START")
         return True
     elif color == 2: # BLUE: good condition, 1 beep
@@ -309,16 +316,17 @@ def main():
     data = None
 
 
-    with open('zemljevid.json') as f:
-        data = json.load(f)
+    #with open('zemljevid.json') as f:
+    #    data = json.load(f)
 
 
-    #resource = urllib.request.urlopen('http://192.168.0.200:8080/zemljevid.json')
-    #content =  resource.read()
-    #content =  content.decode("utf-8")
-    #data = json.loads(content)
+    resource = urllib.request.urlopen('http://192.168.0.200:8080/zemljevid.json')
+    content =  resource.read()
+    content =  content.decode("utf-8")
+    data = json.loads(content)
 
-    # with open('zemljevid.json') as f:
+
+    #with open('zemljevid.json') as f:
         # data = json.load(f)
 
 
@@ -342,6 +350,9 @@ def main():
 
     global start_time
     start_time = time.time()
+
+    global gyro_drift
+    gyro_drift = 0
 
     #test_destinations = [[10, 0], [10, 10], [10, 0], [0, 0]]
     #test_destinations = [[60, 0], [0, 0]]
@@ -374,7 +385,7 @@ def main():
     global searching_neighbourhood
     searching_neighbourhood = False
     neighbourhood_locations = []
-
+    '''
 
     while locations:
         next_location = locations.pop(0)
@@ -409,7 +420,7 @@ def main():
             if not searching_neighbourhood:
                 searching_neighbourhood = True
                 radius = 2.5
-                for area in range(1,15):
+                for area in range(1,20):
                     neighbourhood_locations.append([next_location[0]+radius*area, next_location[1]-radius*area])
                     neighbourhood_locations.append([next_location[0]+radius*area, next_location[1]+radius*area])
                     neighbourhood_locations.append([next_location[0]-radius*area, next_location[1]+radius*area])
@@ -425,19 +436,43 @@ def main():
     angle = calculate_angle(0, gy.value())
     rotate_to_angle(angle, mL, mR, gy)
 
+    '''
 
-    # for _ in range (5):
-    #     rotate_to_angle(90, mL, mR, gy)
-    #     rotate_to_angle(180, mL, mR, gy)
-    #     rotate_to_angle(270, mL, mR, gy)
-    #     rotate_to_angle(180, mL, mR, gy)
-    #     rotate_to_angle(90, mL, mR, gy)
-    #     rotate_to_angle(0, mL, mR, gy)
+    for _ in range (5):
+        rotate_to_angle(90, mL, mR, gy)
+        debug_print(gyro_drift)
+        rotate_to_angle(180, mL, mR, gy)
+        debug_print(gyro_drift)
+        rotate_to_angle(270, mL, mR, gy)
+        debug_print(gyro_drift)
+        rotate_to_angle(180, mL, mR, gy)
+        debug_print(gyro_drift)
+        rotate_to_angle(90, mL, mR, gy)
+        rotate_to_angle(0, mL, mR, gy)
+
+    #for _ in range (5):
+        #rotate_to_angle(89, mL, mR, gy)
+        #rotate_to_angle(178, mL, mR, gy)
+        #rotate_to_angle(270, mL, mR, gy)
+        #rotate_to_angle(180, mL, mR, gy)
+        #rotate_to_angle(90, mL, mR, gy)
+        #rotate_to_angle(0, mL, mR, gy)
+
+    #rotate_to_angle(-91, mL, mR, gy)
+    #rotate_to_angle(-182, mL, mR, gy)
+    #rotate_to_angle(-2, mL, mR, gy)
+
+
+    #rotate_to_angle(89, mL, mR, gy)
+    #rotate_to_angle(178, mL, mR, gy)
+    #rotate_to_angle(-2, mL, mR, gy)
+    #rotate_to_angle(87, mL, mR, gy)
+    #rotate_to_angle(176, mL, mR, gy)
 
     # for i in range (3):
-    #     drive_for_centimeters(180, mL, mR, gy, 0)
+    #     drive_for_centimeters(25, mL, mR, gy, 0)
     #     rotate_to_angle(0, mL, mR, gy)
-    #     drive_for_centimeters(-180, mL, mR, gy, 0)
+    #     drive_for_centimeters(-25, mL, mR, gy, 0)
     #     rotate_to_angle(0, mL, mR, gy)
 
 if __name__ == '__main__':
