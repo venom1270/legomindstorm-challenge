@@ -21,27 +21,6 @@ def debug_print(*args, **kwargs):
     '''
     print(*args, **kwargs, file=sys.stderr)
 
-
-def reset_console():
-    '''Resets the console to the default state'''
-    print('\x1Bc', end='')
-
-
-def set_cursor(state):
-    '''Turn the cursor on or off'''
-    if state:
-        print('\x1B[?25h', end='')
-    else:
-        print('\x1B[?25l', end='')
-
-
-def set_font(name):
-    '''Sets the console font
-
-    A full list of fonts can be found with `ls /usr/share/consolefonts`
-    '''
-    os.system('setfont ' + name)
-
 def get_angle(gyro, readings_to_average):
     angle = 0.0
     for _ in range(readings_to_average):
@@ -51,32 +30,39 @@ def get_angle(gyro, readings_to_average):
 
 rotate_log_number = 0
 def rotate_to_angle(angle, mL, mR, gyro):
-    debug_print("Rotate to ", angle, "degrees")
     mL.reset()
     mR.reset()
     e_old = integral = 0
-    t_beg = t_old = time.time()
-    e = angle - get_angle(gyro, 3)
-    k_p = 3.2 # slight overshoot, 3.5, 3.3 work quite well
-    k_i = 1.2; max_i = 50 #0.3
-    k_d = 0.1
+    start_time = t_beg = t_old = time.time()
     errors = 0xffffffff
+    check_stuck = 0xffffffff
+    stuck_value = 0
 
-    global rotate_log_number
-    file = open("logs/rotate_to_angle_" + str(rotate_log_number) + ".txt", "w")
-    file.write("Time\tError\tIntegral\tU\n")
-    rotate_log_number += 1
+    k_p = 0.5 
+    k_i = 33; max_i = 0.25 
+    k_d = 0
+    speed = 30
+    
+    # global rotate_log_number
+    # file = open("logs/rotate_to_angle_" + str(rotate_log_number) + ".txt", "w")
+    # file.write("Time\tError\tIntegral\tU\n")
+    # rotate_log_number += 1
+    
+    global left_rotations
+    global right_rotations
+    
+    e = angle - get_angle(gyro, 3)
 
-    speed = 20
-
-    start_time = time.time()
+    if e < -20:
+        left_rotations += 1
+    if e > 20:
+        right_rotations += 1
 
     global gyro_drift
-    gyro_drift -= (int(e) / 90)
-    debug_print(e)
+    gyro_drift = int((right_rotations * -12/8) + (left_rotations * 0/8))
+    e += gyro_drift 
 
-    angle += gyro_drift
-    e = angle - get_angle(gyro, 3)
+    debug_print("Rotate for ", e, " degrees to ", angle, "degrees")
 
     while errors: # or error_history < 10:
         t = time.time()
@@ -84,41 +70,44 @@ def rotate_to_angle(angle, mL, mR, gyro):
         max_power = max(min((t - t_beg)* speed/1, speed), -speed)
 
         dT = t - t_old
-        e = angle - gyro.value() # Check if it's better to read the gyro less or even more times
+        e = angle - gyro.value() + gyro_drift # Check if it's better to read the gyro less or even more times
+        if e == 0:
+            integral = 0
         errors = ((errors << 1) & 0xffffffff) | (e != 0)
         dE = e - e_old
-        u = k_p * e + max(min(k_i * integral, max_i), -max_i) + k_d * dE / dT
+        u = k_p * e + k_i * integral + k_d * dE / dT
 
         u = max(min(u, max_power), -max_power)
 
+        # Bump if stuck on same error (not enough force to move)
+        check_stuck = ((check_stuck << 1) & 0xffffffff) | (stuck_value != e)
+        stuck_value = e
+        if check_stuck == 0:
+            u *= 2
+            check_stuck = 0xffffffff
+
         # correction for wheel spin difference so the ev3 stays in same position
-        k_ns_p = 1
-        e_ns = mR.position + mL.position
-        u_ns = k_ns_p * e_ns
-        if u_ns > 0:
+        if abs(e) > 4:
+            k_ns_p = 1
+            e_ns = mR.position + mL.position
+            u_ns = k_ns_p * e_ns
+            if u_ns > 0:
+                u_ns_r = 0
+                u_ns_l = u_ns
+            else:
+                u_ns_r = u_ns
+                u_ns_l = 0
+        else: 
             u_ns_r = 0
-            u_ns_l = u_ns
-        else:
-            u_ns_r = u_ns
             u_ns_l = 0
+            #k_p = 5
 
-        #debug_print(t, u_ns, e, dE, integral, u, sep=', ')
-
-        #if e < 20:
-        #    u /= 2
-
-        if abs(e) <= 15:
-            #k_p = 30/e
-            integral += e * dT
-
-        #k_i = (1-e/90.0)
+        print(e, integral, u, sep=', ')
 
         mR.run_direct(duty_cycle_sp=-u - u_ns_r)
         mL.run_direct(duty_cycle_sp=u - u_ns_l)
 
-        #if e < 10:
-        #integral += e * dT
-        integral = max(min(integral, max_i), -max_i)
+        integral = max(min(integral + e * dT, max_i), -max_i)
         e_old = e
         t_old = t
 
@@ -128,86 +117,91 @@ def rotate_to_angle(angle, mL, mR, gyro):
     mR.run_direct(duty_cycle_sp=0)
     mL.run_direct(duty_cycle_sp=0)
 
-    file.close()
+    #file.close()
+
 
 drive_log_number = 0
 def drive_for_centimeters(distance, mL, mR, gyro, angle):
-    distance_count = (distance*mR.count_per_rot)/17.6
+    distance_count = (distance*mR.count_per_rot)/17.16
     distance_count = int(round(distance_count))
     debug_print("Move for ", distance_count, "degrees")
     mL.reset()
     mR.reset()
-
-    global drive_log_number
-
-    file = open("logs/drive_for_centimeters_" + str(drive_log_number) + ".txt", "w")
-    file2 = open("logs/drive_for_centimeters2_" + str(drive_log_number) + ".txt", "w")
-    file.write("Time\tError\tIntegral\tU\n")
-    file2.write("Time\tError\tIntegral\tU\n")
-    drive_log_number += 1
-
+    check_stuck = 0xffffffff
+    stuck_value = 0
     errors = 0xff
-    e_2_ang = integral_2 = e_old = e_old_2 = integral = 0
+    powr_corr = e_2_ang = integral_2 = e_old = e_old_2 = integral = 0
     start_time = t_beg = t_old = time.time()
     e = distance_count
 
-    # run_forever
-    #k_p = 0.4
-    #k_i = 0.03; max_i = 15
-    #k_d = 0.00
+    # global drive_log_number
+    # file = open("logs/drive_for_centimeters_" + str(drive_log_number) + ".txt", "w")
+    # file2 = open("logs/drive_for_centimeters2_" + str(drive_log_number) + ".txt", "w")
+    # file.write("Time\tError\tIntegral\tU\n")
+    # file2.write("Time\tError\tIntegral\tU\n")
+    # drive_log_number += 1
 
-    k_p = 0.8
-    k_i = 0.5; max_i = 70
+    k_p = 0.2
+    k_i = 28; max_i = 0.25 # 15 0.5
     k_d = 0
 
-    k_r_1 = 1
-    k_r_2 = 0
-    k_p_2 = 1 #0.5 0.1
-    k_i_2 = 0.0; max_i_2 = 10 #1 0.25
-    k_d_2 = 0.00 #0.01
+    k_p_2 = 1 # 1
+    k_i_2 = 0.0; max_i_2 = 10 
+    k_d_2 = 0
 
-    speed = 30 #run_forever 20
+    speed = 35 
+
+    if e > 0:
+        powr_corr = 1.027
+    else:
+        powr_corr = 0.998
 
     global searching_neighbourhood
+    global gyro_drift
 
     while errors:
         t = time.time()
-         # increase to 'speed' over 1.5 seconds
-        max_power = max(min((t - t_beg)* speed/5.0, speed), -speed)
+         # increase to 'speed' over 2 seconds
+        max_power = max(min((t - t_beg)* speed/2.0, speed), -speed)
 
         dT = t - t_old
         e = distance_count - int((mL.position + mR.position)/2)
         errors = ((errors << 1) & 0xff) | ((e > 1) | (e < -1))
         dE = e - e_old
-        u = k_p * e +  max(min(k_i * integral, max_i), -max_i) + k_d * dE / dT
+        u = k_p * e +  k_i * integral + k_d * dE / dT
 
         u = max(min(u, max_power), -max_power)
-        #if u < 5:
-        #    gyro_drift = gyro.value()
+        
+        # Bump if stuck on same error (not enough force to move)
+        check_stuck = ((check_stuck << 1) & 0xffffffff) | (stuck_value != e)
+        stuck_value = e
+        if check_stuck == 0:
+            u *= 2
+            check_stuck = 0xffffffff
+
         # --------------------------------------------------------------------------------------------
-        # Not the best way to do things ^^', in fact it probably wont work...
-        measured_angle = get_angle(gyro, 1) # Check if it's better to read the gyro just one time or even more times
-        e_2_ang += (measured_angle - angle) * dT # integral of the error is the actual error
-        e_2 = k_r_1 * (measured_angle - angle) + k_r_2 * (mL.position - mR.position)
-        #e_2 = e_2_ang
+        if abs(e) > 15:
+            measured_angle = get_angle(gyro, 1) - gyro_drift # Check if it's better to read the gyro just one time or even more times
+            e_2_ang = (measured_angle - angle) # integral of the error is the actual error
+            
+            dE_2 = e_2_ang - e_old_2
+            e_old_2 = e_2_ang
+            u_2 = k_p_2 * e_2_ang + k_i_2 * integral_2 + k_d_2 * dE_2/dT
+            u_2 = max(min(u_2, 10), -10)
 
-        dE_2 = e_2 - e_old_2
-        u_2 = k_p_2 * e_2 + k_i_2 * integral_2 + k_d_2 * dE_2/dT
-        u_2 = max(min(u_2, 10), -10)
+            mL.run_direct(duty_cycle_sp=u*powr_corr - u_2)
+            mR.run_direct(duty_cycle_sp=u + u_2)
 
-        mL.run_direct(duty_cycle_sp=u - u_2)
-        mR.run_direct(duty_cycle_sp=u + u_2)
-        #mL.run_forever(speed_sp=(u - u_2) * 10)
-        #mR.run_forever(speed_sp=(u + u_2) * 10)
-
-        integral_2 += e_2 * dT
-        integral_2 = max(min(integral_2, max_i_2), -max_i_2)
+            integral_2 += e_2_ang * dT
+            integral_2 = max(min(integral_2, max_i_2), -max_i_2)
+        else:
+            mL.run_direct(duty_cycle_sp=u*powr_corr)
+            mR.run_direct(duty_cycle_sp=u)
         # --------------------------------------------------------------------------------------------
         #debug_print("Time:", t, "Error:", e, "Integral:", integral, "u:", u, "Integral_2:", integral_2, "u_2:", u_2, "e_2:", e_2, "e_2_ang:", e_2_ang, sep=' ')
+        print(e_2_ang, sep=', ')
 
-        if abs(e) < 50:
-            integral += e * dT
-        integral = max(min(integral, max_i), -max_i)
+        integral = max(min(integral + e * dT, max_i), -max_i)
         e_old = e
         t_old = t
 
@@ -220,8 +214,8 @@ def drive_for_centimeters(distance, mL, mR, gyro, angle):
     mR.run_direct(duty_cycle_sp=0)
     mL.run_direct(duty_cycle_sp=0)
 
-    file.close()
-    file2.close()
+    # file.close()
+    # file2.close()
 
 def calculate_angle(angle, current_angle):
     factor = int(current_angle / 360)
@@ -235,7 +229,8 @@ def calculate_angle(angle, current_angle):
     return angle
 
 def go_to_location(x, y, current_x, current_y, mL, mR, gyro):
-    current_angle = get_angle(gyro, 5)
+    global gyro_drift
+    current_angle = get_angle(gyro, 5) - gyro_drift
     relative_angle = abs(current_angle % 360)
     delta_x = x - current_x
     delta_y = y - current_y
@@ -307,7 +302,7 @@ def check_color():
         debug_print("Color sensor: UNKNOWN (" + str(color) + ")")
         return False
 
-gyro_drift = 0
+right_rotations = left_rotations = gyro_drift = 0
 start_time = None
 cl = None
 searching_neighbourhood = False
@@ -315,20 +310,14 @@ searching_neighbourhood = False
 def main():
     data = None
 
-
-    #with open('zemljevid.json') as f:
-    #    data = json.load(f)
-
-
-    resource = urllib.request.urlopen('http://192.168.0.200:8080/zemljevid.json')
-    content =  resource.read()
-    content =  content.decode("utf-8")
-    data = json.loads(content)
-
-
-    #with open('zemljevid.json') as f:
-        # data = json.load(f)
-
+    if True:
+        with open('zemljevid.json') as f:
+            data = json.load(f)
+    else:
+        resource = urllib.request.urlopen('http://192.168.0.200:8080/zemljevid.json')
+        content =  resource.read()
+        content =  content.decode("utf-8")
+        data = json.loads(content)
 
     os.system('setfont Lat15-TerminusBold14')
     if os.path.exists("logs"):
@@ -346,22 +335,11 @@ def main():
     gy.mode = 'GYRO-ANG'
 
     # Give gyro a bit of time to start
-    time.sleep(2)
+    time.sleep(3)
 
     global start_time
     start_time = time.time()
-
-    global gyro_drift
-    gyro_drift = 0
-
-    #test_destinations = [[10, 0], [10, 10], [10, 0], [0, 0]]
-    #test_destinations = [[60, 0], [0, 0]]
-    #test_destinations = [[100, 0], [100, -30], [0, -30], [0, 0]]
-    #test_destinations = [[20, 0], [40, 0], [60, 0], [80, 0], [100, 0]]
-    #test_destinations = [[100, 0]]
-    #test_destinations = [[96, 24], [0, 0], [60, 60], [0, 0]]
-    #test_destinations = [[96, 0], [96, 24], [0, 24], [0, 0], [60, 0], [60, 60], [0, 60], [0, 0]]
-    #test_destinations = [[150, 0], [0, 0]]
+    debug_print("Start time: ", start_time)
 
     start = [0, 0]
     locations = []
@@ -385,7 +363,7 @@ def main():
     global searching_neighbourhood
     searching_neighbourhood = False
     neighbourhood_locations = []
-    '''
+    
 
     while locations:
         next_location = locations.pop(0)
@@ -419,7 +397,7 @@ def main():
             #locations.insert(0, start)
             if not searching_neighbourhood:
                 searching_neighbourhood = True
-                radius = 2.5
+                radius = 5
                 for area in range(1,20):
                     neighbourhood_locations.append([next_location[0]+radius*area, next_location[1]-radius*area])
                     neighbourhood_locations.append([next_location[0]+radius*area, next_location[1]+radius*area])
@@ -427,28 +405,20 @@ def main():
                     neighbourhood_locations.append([next_location[0]-radius*area, next_location[1]-radius*area])
             locations.insert(0, neighbourhood_locations[0])
             neighbourhood_locations = neighbourhood_locations[1:]
-            #search = next_location
-            #search.x += 5
-            #locations.insert(0, search)
 
 
-    # Rotate back to original orientation
-    angle = calculate_angle(0, gy.value())
-    rotate_to_angle(angle, mL, mR, gy)
+    # # Rotate back to original orientation
+    # angle = calculate_angle(0, gy.value())
+    # rotate_to_angle(angle, mL, mR, gy)
 
-    '''
+    
 
-    for _ in range (5):
-        rotate_to_angle(90, mL, mR, gy)
-        debug_print(gyro_drift)
-        rotate_to_angle(180, mL, mR, gy)
-        debug_print(gyro_drift)
-        rotate_to_angle(270, mL, mR, gy)
-        debug_print(gyro_drift)
-        rotate_to_angle(180, mL, mR, gy)
-        debug_print(gyro_drift)
-        rotate_to_angle(90, mL, mR, gy)
-        rotate_to_angle(0, mL, mR, gy)
+    # for i in range (16):
+    #     rotate_to_angle(90, mL, mR, gy)
+    #     rotate_to_angle(0, mL, mR, gy)
+        
+    
+    
 
     #for _ in range (5):
         #rotate_to_angle(89, mL, mR, gy)
@@ -469,11 +439,13 @@ def main():
     #rotate_to_angle(87, mL, mR, gy)
     #rotate_to_angle(176, mL, mR, gy)
 
-    # for i in range (3):
-    #     drive_for_centimeters(25, mL, mR, gy, 0)
+    # for i in range (5):
+    #     drive_for_centimeters(50, mL, mR, gy, 0)
     #     rotate_to_angle(0, mL, mR, gy)
-    #     drive_for_centimeters(-25, mL, mR, gy, 0)
+    #     drive_for_centimeters(-50, mL, mR, gy, 0)
     #     rotate_to_angle(0, mL, mR, gy)
+
+    debug_print("End time: ", time.time())
 
 if __name__ == '__main__':
     main()
